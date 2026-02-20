@@ -1,0 +1,176 @@
+:root {
+  --bracket-bg: #f5f7f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #c8d0da;
+  --text: #1f2a37;
+  --muted: #5f6b7a;
+  --winner: #0f8b6f;
+  --loser: #c44536;
+  --accent: #d96b0b;
+  --focus: #0f5cc0;
+}
+
+[data-theme="dark"] {
+  --bracket-bg: #111820;
+  --surface: #1a2531;
+  --surface-2: #213141;
+  --border: #385068;
+  --text: #eaf0f6;
+  --muted: #9bb1c6;
+  --winner: #3fc2a1;
+  --loser: #ff7c6e;
+  --accent: #ff9b40;
+  --focus: #74a9ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 35%),
+    radial-gradient(circle at 88% 88%, color-mix(in srgb, var(--focus) 12%, transparent), transparent 35%),
+    var(--bracket-bg);
+  color: var(--text);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.tlc-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  gap: 12px;
+  padding: 12px;
+  height: 100%;
+}
+
+.tlc-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.tlc-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.tlc-match-card {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 8px;
+  text-align: left;
+  color: inherit;
+}
+
+.tlc-match-card.is-highlight {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.tlc-match-card.is-upset {
+  border-left: 4px solid var(--loser);
+}
+
+.tlc-match-card.is-live {
+  border-left: 4px solid var(--accent);
+}
+
+.tlc-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tlc-muted {
+  color: var(--muted);
+}
+
+.tlc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.tlc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.45);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.tlc-modal {
+  width: min(540px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.tlc-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.tlc-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tlc-surface {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.tlc-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tlc-reduce-motion * {
+  transition: none !important;
+  animation: none !important;
+}
+
+@media (max-width: 1024px) {
+  .tlc-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100%;
+  }
+}
