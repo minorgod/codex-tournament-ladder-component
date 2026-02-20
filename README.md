@@ -208,6 +208,12 @@ engine.registerPlugin(myFormatPlugin);
 - Match details modal result entry
 - JSON export/import
 
+## Build Timeline
+
+Commit timeline with elapsed time from zero is tracked in:
+
+- `/Users/brett/code/tournament-ladder-component/BUILD_TIMELOG.md`
+
 ## Notes
 
 - The engine is deterministic by design.

@@ -39,7 +39,17 @@ export type Command =
   | { type: "LOCK_TOURNAMENT"; payload: { locked: boolean } }
   | { type: "REGENERATE_STAGE"; payload: { stageId: ID; preserveResults?: boolean } }
   | { type: "LADDER_CHALLENGE"; payload: { challengerId: ID; challengedId: ID; scheduledAt?: ISODateTime } }
-  | { type: "APPLY_DECAY"; payload: { stageId: ID; at: ISODateTime } };
+  | { type: "APPLY_DECAY"; payload: { stageId: ID; at: ISODateTime } }
+  | {
+      type: "SET_MATCH_OFFICIATING";
+      payload: {
+        matchId: ID;
+        referee?: string;
+        verifiedBy?: string;
+        verifiedAt?: ISODateTime;
+        disputeNote?: string;
+      };
+    };
 
 export const mutatingCommands: ReadonlySet<Command["type"]> = new Set([
   "INIT_TOURNAMENT",
@@ -55,6 +65,7 @@ export const mutatingCommands: ReadonlySet<Command["type"]> = new Set([
   "REGENERATE_STAGE",
   "LADDER_CHALLENGE",
   "APPLY_DECAY",
+  "SET_MATCH_OFFICIATING",
 ]);
 
 export function isBracketFormat(format: TournamentStage["format"]): boolean {

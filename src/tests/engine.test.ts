@@ -249,4 +249,85 @@ describe("deterministic engine", () => {
     const twice = apply(once, { type: "APPLY_DECAY", payload: { stageId: "lad", at: "2026-03-01T00:00:00Z" } });
     expect(once.stages).toEqual(twice.stages);
   });
+
+  it("recomputes ladder standings on undo", () => {
+    let state = seededState(6);
+    state = apply(state, {
+      type: "GENERATE_STAGE",
+      payload: {
+        stageId: "lad_u",
+        stageName: "Ladder Undo",
+        format: "ladder",
+        settings: { metadata: {} },
+      },
+    });
+
+    state = apply(state, { type: "LADDER_CHALLENGE", payload: { challengerId: "p6", challengedId: "p3" } });
+    let firstMatch = state.matches.find((m) => m.stageId === "lad_u");
+    expect(firstMatch).toBeDefined();
+    if (!firstMatch) {
+      return;
+    }
+
+    state = apply(state, {
+      type: "RECORD_MATCH_RESULT",
+      payload: {
+        matchId: firstMatch.id,
+        score: { mode: "points", a: 2, b: 0 },
+        outcome: { kind: "winner", winnerId: "p6", loserId: "p3" },
+      },
+    });
+
+    state = apply(state, { type: "LADDER_CHALLENGE", payload: { challengerId: "p5", challengedId: "p2" } });
+    const secondMatch = state.matches.filter((m) => m.stageId === "lad_u").find((m) => m.id !== firstMatch!.id);
+    expect(secondMatch).toBeDefined();
+    if (!secondMatch) {
+      return;
+    }
+
+    state = apply(state, {
+      type: "RECORD_MATCH_RESULT",
+      payload: {
+        matchId: secondMatch.id,
+        score: { mode: "points", a: 2, b: 0 },
+        outcome: { kind: "winner", winnerId: "p5", loserId: "p2" },
+      },
+    });
+
+    const beforeUndo = state.stages.find((s) => s.id === "lad_u");
+    expect(beforeUndo && beforeUndo.format === "ladder").toBe(true);
+    if (!beforeUndo || beforeUndo.format !== "ladder") {
+      return;
+    }
+    const p6Before = beforeUndo.standings.find((s) => s.participantId === "p6");
+    expect(p6Before?.rank).toBeLessThan(6);
+
+    state = apply(state, {
+      type: "UNDO_MATCH_RESULT",
+      payload: { matchId: firstMatch.id },
+    });
+
+    const afterUndo = state.stages.find((s) => s.id === "lad_u");
+    expect(afterUndo && afterUndo.format === "ladder").toBe(true);
+    if (!afterUndo || afterUndo.format !== "ladder") {
+      return;
+    }
+    const p6After = afterUndo.standings.find((s) => s.participantId === "p6");
+    expect(p6After?.rank).toBeGreaterThanOrEqual(p6Before?.rank ?? 1);
+  });
+
+  it("blocks admin commands for non-admin actors", () => {
+    const state = seededState(4);
+    const denied = engine.applyCommand(
+      state,
+      {
+        type: "SEED_PARTICIPANTS",
+        payload: { method: "shuffle" },
+      },
+      now(),
+      { id: "viewer", role: "viewer", name: "Viewer" },
+    );
+    expect(denied.validation.ok).toBe(false);
+    expect(denied.validation.issues.some((issue) => issue.code === "ROLE_FORBIDDEN")).toBe(true);
+  });
 });

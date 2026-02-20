@@ -8,6 +8,8 @@ export function AdminPanel(props: {
   state: TournamentState;
   onCommand(command: Command): void;
 }) {
+  const [seedMethod, setSeedMethod] = useState<"manual" | "rating" | "shuffle">("rating");
+  const [seedMapInput, setSeedMapInput] = useState("");
   const [undoMatchId, setUndoMatchId] = useState("");
   const [forceFrom, setForceFrom] = useState("");
   const [forceTo, setForceTo] = useState("");
@@ -19,6 +21,10 @@ export function AdminPanel(props: {
   const [challengerId, setChallengerId] = useState("");
   const [challengedId, setChallengedId] = useState("");
   const [decayStageId, setDecayStageId] = useState("");
+  const [officiatingMatchId, setOfficiatingMatchId] = useState("");
+  const [referee, setReferee] = useState("");
+  const [verifiedBy, setVerifiedBy] = useState("");
+  const [disputeNote, setDisputeNote] = useState("");
 
   const sortedAudit = useMemo(() => sortAudit(props.state.audit), [props.state.audit]);
 
@@ -27,6 +33,44 @@ export function AdminPanel(props: {
       <h3 style={{ marginTop: 0 }}>Admin</h3>
 
       <div className="tlc-grid">
+        <h4 style={{ marginBottom: 0 }}>Seeding</h4>
+        <div className="tlc-grid two">
+          <select value={seedMethod} onChange={(event) => setSeedMethod(event.target.value as "manual" | "rating" | "shuffle")}>
+            <option value="rating">By rating</option>
+            <option value="shuffle">Deterministic shuffle</option>
+            <option value="manual">Manual map</option>
+          </select>
+          <button
+            onClick={() => {
+              let seedMap: Record<string, number> | undefined;
+              if (seedMethod === "manual") {
+                try {
+                  seedMap = JSON.parse(seedMapInput || "{}") as Record<string, number>;
+                } catch {
+                  return;
+                }
+              }
+              props.onCommand({
+                type: "SEED_PARTICIPANTS",
+                payload: {
+                  method: seedMethod,
+                  seedMap,
+                },
+              });
+            }}
+          >
+            Apply Seeding
+          </button>
+        </div>
+        {seedMethod === "manual" ? (
+          <textarea
+            value={seedMapInput}
+            onChange={(event) => setSeedMapInput(event.target.value)}
+            placeholder='Manual seed map JSON, e.g. {"p1":1,"p2":2}'
+            rows={3}
+          />
+        ) : null}
+
         <button onClick={() => props.onCommand({ type: "LOCK_TOURNAMENT", payload: { locked: !props.state.locked } })}>
           {props.state.locked ? "Unlock Tournament" : "Lock Tournament"}
         </button>
@@ -151,6 +195,37 @@ export function AdminPanel(props: {
             }}
           >
             Apply Decay
+          </button>
+        </div>
+
+        <h4 style={{ marginBottom: 0 }}>Dispute Resolution</h4>
+        <div className="tlc-grid two">
+          <input
+            value={officiatingMatchId}
+            onChange={(event) => setOfficiatingMatchId(event.target.value)}
+            placeholder="Match ID"
+          />
+          <input value={referee} onChange={(event) => setReferee(event.target.value)} placeholder="Referee" />
+          <input value={verifiedBy} onChange={(event) => setVerifiedBy(event.target.value)} placeholder="Verified by" />
+          <input value={disputeNote} onChange={(event) => setDisputeNote(event.target.value)} placeholder="Dispute note" />
+          <button
+            onClick={() => {
+              if (!officiatingMatchId) {
+                return;
+              }
+              props.onCommand({
+                type: "SET_MATCH_OFFICIATING",
+                payload: {
+                  matchId: officiatingMatchId,
+                  referee: referee || undefined,
+                  verifiedBy: verifiedBy || undefined,
+                  verifiedAt: new Date().toISOString(),
+                  disputeNote: disputeNote || undefined,
+                },
+              });
+            }}
+          >
+            Resolve Dispute
           </button>
         </div>
       </div>

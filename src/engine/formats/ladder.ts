@@ -29,20 +29,27 @@ function buildLadderStage(args: {
 }): { stage: TournamentStage; matches: Match[] } {
   const rules = (args.options?.rules as LadderRuleSet | undefined) ?? defaultRules();
   const ordered = sortParticipantsForSeed(args.participants);
+  const initialStandings = ordered.map((participantId, idx) => ({
+    participantId,
+    rank: idx + 1,
+    points: 0,
+    streak: 0,
+  }));
 
   const stage: TournamentStage = {
     id: args.stageId,
     name: args.stageName,
     format: "ladder",
     rules,
-    standings: ordered.map((participantId, idx) => ({
-      participantId,
-      rank: idx + 1,
-      points: 0,
-      streak: 0,
-    })),
+    standings: initialStandings,
     matchIds: [],
-    settings: args.settings,
+    settings: {
+      ...args.settings,
+      metadata: {
+        ...(args.settings.metadata ?? {}),
+        initialStandings,
+      },
+    },
   };
 
   return {

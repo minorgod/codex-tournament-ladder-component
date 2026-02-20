@@ -10,6 +10,16 @@ import { isChallengeOnCooldown, isLadderChallengeWithinWindow } from "@/engine/r
 import { seedParticipantsByRating, seedParticipantsManual, seedParticipantsShuffle } from "@/engine/rules/seeding";
 import type { BracketStage, DomainEvent, LadderStage, Match, TournamentState } from "@/models";
 
+const adminOnlyCommands: ReadonlySet<Command["type"]> = new Set([
+  "REMOVE_PARTICIPANT",
+  "SEED_PARTICIPANTS",
+  "FORCE_ADVANCE",
+  "LOCK_TOURNAMENT",
+  "REGENERATE_STAGE",
+  "APPLY_DECAY",
+  "SET_MATCH_OFFICIATING",
+]);
+
 function buildAuditSummary(command: Command): string {
   switch (command.type) {
     case "INIT_TOURNAMENT":
@@ -38,6 +48,8 @@ function buildAuditSummary(command: Command): string {
       return `Applied decay to stage '${command.payload.stageId}'`;
     case "SEED_PARTICIPANTS":
       return `Applied ${command.payload.method} seeding`;
+    case "SET_MATCH_OFFICIATING":
+      return `Updated officiating/dispute fields for match '${command.payload.matchId}'`;
     default:
       return "Unknown command";
   }
@@ -89,6 +101,97 @@ function getCommandValidationFailure(state: TournamentState, code: string, messa
     issues: [{ level: "error", code, message }],
   };
   return { state, events: [], validation };
+}
+
+function ensureAdminRoleForCommand(state: TournamentState, command: Command, actor?: Actor): ApplyResult | undefined {
+  if (!adminOnlyCommands.has(command.type)) {
+    return undefined;
+  }
+  if (!actor) {
+    return undefined;
+  }
+  if (actor.role === "admin") {
+    return undefined;
+  }
+  return getCommandValidationFailure(state, "ROLE_FORBIDDEN", `Command '${command.type}' requires admin role.`);
+}
+
+function normalizeMatchStatusForReset(match: Match): Match["status"] {
+  return match.participants.some((p) => p !== null) ? "pending" : "scheduled";
+}
+
+function replayLadderStandingsAfterUndo(
+  state: TournamentState,
+  stage: LadderStage,
+  undoneMatchId: string,
+  ladderPlugin: TournamentFormatPlugin,
+  now: string,
+): { state: TournamentState; events: DomainEvent[] } {
+  const baseStandings = Array.isArray(stage.settings.metadata?.initialStandings)
+    ? stage.settings.metadata!.initialStandings
+        .filter(
+          (entry): entry is LadderStage["standings"][number] =>
+            typeof entry === "object" &&
+            entry !== null &&
+            "participantId" in entry &&
+            typeof (entry as { participantId: unknown }).participantId === "string" &&
+            "rank" in entry &&
+            typeof (entry as { rank: unknown }).rank === "number",
+        )
+        .map((entry) => ({ ...entry }))
+    : stage.standings.map((entry) => ({ ...entry, points: 0, streak: 0, lastMatchAt: undefined }));
+
+  let replayState: TournamentState = {
+    ...state,
+    stages: state.stages.map((s) =>
+      s.id === stage.id && s.format === "ladder"
+        ? {
+            ...s,
+            standings: baseStandings.map((entry) => ({ ...entry })),
+          }
+        : s,
+    ),
+    matches: state.matches.map((match) =>
+      match.id === undoneMatchId
+        ? {
+            ...match,
+            score: undefined,
+            outcome: undefined,
+            completedAt: undefined,
+            status: normalizeMatchStatusForReset(match),
+          }
+        : match,
+    ),
+  };
+
+  const replayMatches = replayState.matches
+    .filter((match) => stage.matchIds.includes(match.id) && match.id !== undoneMatchId)
+    .filter((match) => match.status === "completed" && Boolean(match.outcome) && Boolean(match.score))
+    .sort((a, b) => {
+      const atA = a.completedAt ?? "";
+      const atB = b.completedAt ?? "";
+      if (atA !== atB) {
+        return atA.localeCompare(atB);
+      }
+      return a.id.localeCompare(b.id);
+    });
+
+  const events: DomainEvent[] = [{ type: "MATCH_UPDATED", matchId: undoneMatchId, at: now }];
+
+  replayMatches.forEach((match) => {
+    const replayed = ladderPlugin.processMatchResult({
+      state: replayState,
+      matchId: match.id,
+      score: match.score!,
+      outcome: match.outcome!,
+      now: match.completedAt ?? now,
+    });
+    replayState = replayed.state;
+    events.push(...replayed.events);
+  });
+
+  events.push({ type: "STANDINGS_UPDATED", stageId: stage.id, at: now });
+  return { state: replayState, events };
 }
 
 function autoAdvanceByes(state: TournamentState, stage: BracketStage, now: string): { state: TournamentState; events: DomainEvent[] } {
@@ -284,6 +387,14 @@ export class DeterministicTournamentEngine implements TournamentEngine {
     if (state.locked && command.type !== "LOCK_TOURNAMENT" && actor?.role !== "admin") {
       return getCommandValidationFailure(state, "TOURNAMENT_LOCKED", "Tournament is locked for non-admin mutations.");
     }
+    if (mutatingCommands.has(command.type) && actor?.role === "viewer") {
+      return getCommandValidationFailure(state, "ROLE_FORBIDDEN", "Viewer role cannot execute mutating commands.");
+    }
+
+    const adminCheck = ensureAdminRoleForCommand(state, command, actor);
+    if (adminCheck) {
+      return adminCheck;
+    }
 
     let nextState = state;
     let events: DomainEvent[] = [];
@@ -425,21 +536,13 @@ export class DeterministicTournamentEngine implements TournamentEngine {
         }
 
         if (stage.format === "ladder") {
-          nextState = {
-            ...nextState,
-            matches: nextState.matches.map((match) =>
-              match.id === command.payload.matchId
-                ? {
-                    ...match,
-                    score: undefined,
-                    outcome: undefined,
-                    completedAt: undefined,
-                    status: "pending",
-                  }
-                : match,
-            ),
-          };
-          events.push({ type: "MATCH_UPDATED", matchId: command.payload.matchId, at: now });
+          const ladderPlugin = this.plugins.get("ladder");
+          if (!ladderPlugin) {
+            return getCommandValidationFailure(state, "MATCH_FORMAT_UNAVAILABLE", "Ladder plugin is not registered.");
+          }
+          const replayed = replayLadderStandingsAfterUndo(nextState, stage, command.payload.matchId, ladderPlugin, now);
+          nextState = replayed.state;
+          events.push(...replayed.events);
         } else {
           const undone = cascadeUndoBracket(nextState, stage, command.payload.matchId, now);
           nextState = undone.state;
@@ -654,6 +757,36 @@ export class DeterministicTournamentEngine implements TournamentEngine {
         };
 
         events.push({ type: "STANDINGS_UPDATED", stageId: stage.id, at: now });
+        break;
+      }
+
+      case "SET_MATCH_OFFICIATING": {
+        const target = nextState.matches.find((match) => match.id === command.payload.matchId);
+        if (!target) {
+          return getCommandValidationFailure(state, "MATCH_NOT_FOUND", `Match '${command.payload.matchId}' not found.`);
+        }
+
+        nextState = {
+          ...nextState,
+          matches: nextState.matches.map((match) =>
+            match.id === command.payload.matchId
+              ? {
+                  ...match,
+                  officiating: {
+                    ...(match.officiating ?? {}),
+                    referee: command.payload.referee ?? match.officiating?.referee,
+                    verifiedBy: command.payload.verifiedBy ?? match.officiating?.verifiedBy,
+                    verifiedAt: command.payload.verifiedAt ?? match.officiating?.verifiedAt,
+                  },
+                  metadata: {
+                    ...(match.metadata ?? {}),
+                    disputeNote: command.payload.disputeNote ?? (match.metadata?.disputeNote as string | undefined),
+                  },
+                }
+              : match,
+          ),
+        };
+        events.push({ type: "MATCH_UPDATED", matchId: command.payload.matchId, at: now });
         break;
       }
     }
